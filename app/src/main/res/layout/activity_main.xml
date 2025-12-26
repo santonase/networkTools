@@ -23,7 +23,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:hint="Port"
+            android:hint="Port (Single)"
             android:text="80"
             android:inputType="number" />
 
@@ -32,7 +32,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:hint="Packets"
+            android:hint="Packets / Quality"
             android:text="10"
             android:inputType="number" />
     </LinearLayout>
@@ -41,7 +41,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
-        android:layout_marginTop="10dp">
+        android:layout_marginTop="5dp">
 
         <Button
             android:id="@+id/btnPing"
@@ -78,7 +78,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Port"
+            android:text="Check Port"
             android:textSize="10sp"/>
 
         <Button
@@ -86,18 +86,33 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Scan"
+            android:text="IP Scan"
             android:textSize="10sp"
             android:backgroundTint="#4CAF50"/>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
 
         <Button
             android:id="@+id/btnQuality"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Quality"
+            android:text="Quality Test"
             android:textSize="10sp"
             android:backgroundTint="#FF9800"/>
+
+        <Button
+            android:id="@+id/btnScanPorts"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Scan All Ports"
+            android:textSize="10sp"
+            android:backgroundTint="#673AB7"/>
     </LinearLayout>
 
     <TextView

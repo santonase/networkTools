@@ -17,7 +17,6 @@ import java.util.Collections
 
 class MainActivity : AppCompatActivity() {
 
-    // Variable to control the active background job (allows stopping it)
     private var activeJob: Job? = null
 
     // UI Elements
@@ -28,17 +27,25 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnCheckPort: Button
     private lateinit var btnScan: Button
     private lateinit var btnQuality: Button
+    private lateinit var btnScanPorts: Button
     private lateinit var etHost: EditText
     private lateinit var etPort: EditText
     private lateinit var etPackets: EditText
+
+    // Helper map for port names
+    private val portNames = mapOf(
+        21 to "FTP", 22 to "SSH", 23 to "Telnet", 25 to "SMTP",
+        53 to "DNS", 80 to "HTTP", 443 to "HTTPS", 445 to "SMB",
+        3306 to "MySQL", 3389 to "RDP", 8080 to "WebProxy", 554 to "RTSP"
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Initialize UI components
+        // Init UI
         tvLog = findViewById(R.id.tvLog)
-        tvLog.movementMethod = ScrollingMovementMethod() // Enable text scrolling
+        tvLog.movementMethod = ScrollingMovementMethod()
 
         btnPing = findViewById(R.id.btnPing)
         btnStop = findViewById(R.id.btnStop)
@@ -46,32 +53,29 @@ class MainActivity : AppCompatActivity() {
         btnCheckPort = findViewById(R.id.btnCheckPort)
         btnScan = findViewById(R.id.btnScan)
         btnQuality = findViewById(R.id.btnQuality)
+        btnScanPorts = findViewById(R.id.btnScanPorts)
         etHost = findViewById(R.id.etHost)
         etPort = findViewById(R.id.etPort)
         etPackets = findViewById(R.id.etPackets)
 
-        // --- BUTTON LISTENERS ---
+        // --- LISTENERS ---
 
-        // 1. PING BUTTON
         btnPing.setOnClickListener {
             val host = etHost.text.toString()
             if (host.isNotBlank()) startTask { runInfinitePing(host) }
         }
 
-        // 2. STOP BUTTON
         btnStop.setOnClickListener {
             stopTask()
             tvLog.append("\n--- STOPPED BY USER ---\n")
             autoScroll()
         }
 
-        // 3. TRACEROUTE BUTTON
         btnTrace.setOnClickListener {
             val host = etHost.text.toString()
             if (host.isNotBlank()) startTask { runTraceroute(host) }
         }
 
-        // 4. PORT CHECK BUTTON
         btnCheckPort.setOnClickListener {
             val host = etHost.text.toString()
             val portStr = etPort.text.toString()
@@ -80,21 +84,22 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 5. SCAN NETWORK BUTTON
+        // IP SCAN (Uses improved logic)
         btnScan.setOnClickListener {
             startTask { runNetworkScan() }
         }
 
-        // 6. QUALITY TEST BUTTON
         btnQuality.setOnClickListener {
             val host = etHost.text.toString()
             val packetsStr = etPackets.text.toString()
-
-            // Default to 10 packets if the field is empty
             val packetsCount = if (packetsStr.isNotBlank()) packetsStr.toInt() else 10
+            if (host.isNotBlank()) startTask { runQualityTest(host, packetsCount) }
+        }
 
+        btnScanPorts.setOnClickListener {
+            val host = etHost.text.toString()
             if (host.isNotBlank()) {
-                startTask { runQualityTest(host, packetsCount) }
+                startTask { runPortScanner(host) }
             }
         }
     }
@@ -103,162 +108,131 @@ class MainActivity : AppCompatActivity() {
     // CORE LOGIC FUNCTIONS
     // =========================================================================
 
-    // --- FUNCTION 1: INFINITE PING ---
     private suspend fun CoroutineScope.runInfinitePing(host: String) {
         logToScreen(">>> START PING: $host\n")
-
-        while (isActive) { // Loop runs while the job is active
+        while (isActive) {
             try {
-                // Execute a single ping packet
                 val process = Runtime.getRuntime().exec("ping -c 1 -W 2 $host")
                 val reader = BufferedReader(InputStreamReader(process.inputStream))
                 var line: String?
-
-                // Read output
                 while (reader.readLine().also { line = it } != null) {
-                    if (line!!.contains("bytes from")) {
-                        logToScreen(line + "\n")
-                    }
+                    if (line!!.contains("bytes from")) logToScreen(line + "\n")
                 }
                 process.waitFor()
-                delay(1000) // 1-second delay between pings
+                delay(1000)
             } catch (e: Exception) {
                 logToScreen("Error: ${e.message}\n")
-                delay(2000) // Wait longer on error
+                delay(2000)
             }
         }
     }
 
-    // --- FUNCTION 2: TRACEROUTE (TTL Method) ---
     private suspend fun CoroutineScope.runTraceroute(host: String) {
-        logToScreen(">>> START TRACEROUTE: $host\n")
-        logToScreen("(Using TTL method)\n\n")
-
+        logToScreen(">>> TRACEROUTE: $host\n(TTL Method)\n")
         var ttl = 1
-        val maxHops = 30
-        var reachedDestination = false
-
-        while (ttl <= maxHops && isActive && !reachedDestination) {
+        var reached = false
+        while (ttl <= 30 && isActive && !reached) {
             try {
-                // ping -c 1 (count) -t ttl (time to live) -W 2 (timeout)
                 val process = Runtime.getRuntime().exec("ping -c 1 -t $ttl -W 2 $host")
                 val reader = BufferedReader(InputStreamReader(process.inputStream))
                 var line: String?
-                var stepOutput = ""
-                var gotReply = false
-
+                var step = ""
+                var found = false
                 while (reader.readLine().also { line = it } != null) {
-                    // Check for intermediate hop response
                     if (line!!.contains("From") || line!!.contains("exceeded")) {
-                        val ip = extractIp(line!!)
-                        stepOutput = "Hop $ttl: $ip"
-                        gotReply = true
+                        step = "Hop $ttl: ${extractIp(line!!)}"
+                        found = true
                     }
-                    // Check if destination reached
                     if (line!!.contains("bytes from")) {
-                        stepOutput = "Hop $ttl: $host (DONE! ✅)"
-                        reachedDestination = true
-                        gotReply = true
+                        step = "Hop $ttl: $host (DONE! ✅)"
+                        reached = true; found = true
                     }
                 }
                 process.waitFor()
-
-                if (!gotReply) {
-                    stepOutput = "Hop $ttl: * * * (Request timed out)"
-                }
-                logToScreen(stepOutput + "\n")
+                if (!found) step = "Hop $ttl: * * *"
+                logToScreen(step + "\n")
                 ttl++
-
-            } catch (e: Exception) {
-                logToScreen("Error on hop $ttl: ${e.message}\n")
-                break
-            }
+            } catch (e: Exception) { break }
         }
-        logToScreen("\n>>> TRACEROUTE COMPLETED\n")
+        logToScreen("\n>>> DONE\n")
         withContext(Dispatchers.Main) { stopTask() }
     }
 
-    // --- FUNCTION 3: PORT CHECK ---
     private suspend fun CoroutineScope.runPortCheck(host: String, port: Int) {
-        logToScreen(">>> CHECKING $host:$port...\n")
+        logToScreen(">>> CHECKING PORT $port on $host...\n")
         try {
             val socket = Socket()
-            // Try connecting with a 2-second timeout
             socket.connect(InetSocketAddress(host, port), 2000)
             logToScreen("Result: Port $port is OPEN ✅\n")
             socket.close()
         } catch (e: Exception) {
-            logToScreen("Result: Port $port is CLOSED or filtered ❌\n")
+            logToScreen("Result: Port $port is CLOSED ❌\n")
         }
         withContext(Dispatchers.Main) { stopTask() }
     }
 
-    // --- FUNCTION 4: NETWORK SCANNER + HOSTNAMES ---
     private suspend fun CoroutineScope.runNetworkScan() {
-        val myIp = getMyIpAddress()
+        val myIp = getMyIpAddress() // Uses new fixed logic
         if (myIp == null) {
-            logToScreen("Error: Could not determine IP address.\nAre you connected to Wi-Fi?\n")
+            logToScreen("Error: No IP address found. Check Wi-Fi connection.\n")
             withContext(Dispatchers.Main) { stopTask() }
             return
         }
 
+        // Calculate subnet (e.g., 192.168.0.)
         val subnet = myIp.substring(0, myIp.lastIndexOf(".") + 1)
-        logToScreen(">>> SCANNING NETWORK: ${subnet}0/24\n")
-        logToScreen("Your IP: $myIp\nScanning active devices...\n\n")
+        logToScreen(">>> IP SCAN: ${subnet}0/24\nYour IP: $myIp\nScanning active devices...\n\n")
 
-        // Launch 254 parallel tasks
-        val deferredResults = (1..254).map { i ->
-            async(Dispatchers.IO) {
-                val hostToCheck = "$subnet$i"
-                if (hostToCheck == myIp) return@async null // Skip self
+        val allIps = (1..254).toList()
+        val batchSize = 50
+        val chunks = allIps.chunked(batchSize)
+        var foundCount = 0
 
-                try {
-                    // Fast ping (1 sec timeout)
-                    val process = Runtime.getRuntime().exec("ping -c 1 -W 1 $hostToCheck")
-                    val exitValue = process.waitFor()
+        for (chunk in chunks) {
+            if (!isActive) break
 
-                    if (exitValue == 0) {
-                        // If responsive, try Reverse DNS lookup
-                        return@async try {
-                            val inetAddr = java.net.InetAddress.getByName(hostToCheck)
-                            val hostname = inetAddr.hostName
-                            if (hostname != hostToCheck) "$hostToCheck ($hostname)" else hostToCheck
-                        } catch (e: Exception) {
-                            hostToCheck
+            val deferredResults = chunk.map { i ->
+                async(Dispatchers.IO) {
+                    val hostToCheck = "$subnet$i"
+                    if (hostToCheck == myIp) return@async null
+
+                    try {
+                        val process = Runtime.getRuntime().exec("ping -c 1 -W 1 $hostToCheck")
+                        val exitValue = process.waitFor()
+
+                        if (exitValue == 0) {
+                            return@async try {
+                                val inetAddr = java.net.InetAddress.getByName(hostToCheck)
+                                val hostname = inetAddr.hostName
+                                if (hostname != hostToCheck && hostname != null) "$hostToCheck ($hostname)" else hostToCheck
+                            } catch (e: Exception) { hostToCheck }
                         }
-                    }
-                } catch (e: Exception) {
-                    // Ignore ping errors
+                    } catch (e: Exception) { }
+                    return@async null
                 }
-                return@async null
             }
+
+            val foundInBatch = deferredResults.awaitAll().filterNotNull()
+            foundInBatch.forEach { device ->
+                logToScreen("[FOUND] $device\n")
+                foundCount++
+            }
+            delay(50)
         }
 
-        // Wait for all tasks to complete
-        val activeHosts = deferredResults.awaitAll().filterNotNull()
-
-        if (activeHosts.isEmpty()) {
-            logToScreen("No active devices found (except you).\n")
-        } else {
-            activeHosts.forEach { logToScreen("[FOUND] $it\n") }
-        }
-
-        logToScreen("\n>>> SCAN COMPLETED (${activeHosts.size} devices found)\n")
+        if (foundCount == 0) logToScreen("No other devices found.\n")
+        logToScreen("\n>>> SCAN COMPLETED ($foundCount devices)\n")
         withContext(Dispatchers.Main) { stopTask() }
     }
 
-    // --- FUNCTION 5: QUALITY TEST (Packet Loss & Jitter) ---
     private suspend fun CoroutineScope.runQualityTest(host: String, count: Int) {
-        logToScreen(">>> QUALITY TEST: $host\n")
-        logToScreen("Sending $count packets for analysis...\n")
-
+        logToScreen(">>> QUALITY TEST: $host\nPackets: $count\n")
         val totalPackets = count
         var receivedPackets = 0
         val latencies = ArrayList<Double>()
 
         for (i in 1..totalPackets) {
             if (!isActive) break
-
             val startTime = System.currentTimeMillis()
             try {
                 val process = Runtime.getRuntime().exec("ping -c 1 -W 3 $host")
@@ -274,32 +248,64 @@ class MainActivity : AppCompatActivity() {
                 }
             } catch (e: Exception) { logToScreen("#$i: Error\n") }
 
-            // Adjust delay based on packet count to save time
             val sleepTime = if (totalPackets > 20) 50L else 200L
             delay(sleepTime)
         }
 
         logToScreen("\n--- RESULTS ---\n")
         val lossPercent = ((totalPackets - receivedPackets).toDouble() / totalPackets) * 100
-        logToScreen("Packet Loss: ${lossPercent.toInt()}%\n")
-
+        logToScreen("Loss: ${lossPercent.toInt()}%\n")
         if (receivedPackets > 1) {
             val avgPing = latencies.average()
-            // Jitter calculation (variation in latency)
             var jitterSum = 0.0
-            for (i in 0 until latencies.size - 1) {
-                jitterSum += Math.abs(latencies[i] - latencies[i + 1])
-            }
+            for (i in 0 until latencies.size - 1) jitterSum += Math.abs(latencies[i] - latencies[i + 1])
             val jitter = jitterSum / (latencies.size - 1)
+            logToScreen(String.format("Avg: %.1f ms\nJitter: %.1f ms\n", avgPing, jitter))
+        }
+        withContext(Dispatchers.Main) { stopTask() }
+    }
 
-            logToScreen(String.format("Avg Ping: %.1f ms\n", avgPing))
-            logToScreen(String.format("Jitter: %.1f ms\n", jitter))
+    private suspend fun CoroutineScope.runPortScanner(host: String) {
+        logToScreen(">>> FULL PORT SCAN: $host\n")
+        logToScreen("Scanning ports 1-65535...\n")
+        logToScreen("(This might take a minute, please wait)\n\n")
 
-            if (lossPercent == 0.0 && jitter < 20) logToScreen("Conclusion: EXCELLENT connection! ✅\n")
-            else if (lossPercent > 0 || jitter > 100) logToScreen("Conclusion: POOR connection ⚠️\n")
-            else logToScreen("Conclusion: Normal connection.\n")
+        val portsToScan = (1..65535).toList()
+        val batchSize = 500
+        val chunks = portsToScan.chunked(batchSize)
+        var totalOpen = 0
+
+        for ((index, chunk) in chunks.withIndex()) {
+            if (!isActive) break
+
+            val start = chunk.first()
+            if (start % 5000 == 1) {
+                logToScreen("Scanning > $start...\n")
+            }
+
+            val deferredResults = chunk.map { port ->
+                async(Dispatchers.IO) {
+                    try {
+                        val socket = Socket()
+                        socket.connect(InetSocketAddress(host, port), 200)
+                        socket.close()
+                        return@async port
+                    } catch (e: Exception) {
+                        return@async null
+                    }
+                }
+            }
+
+            val openPortsInBatch = deferredResults.awaitAll().filterNotNull()
+            openPortsInBatch.forEach { port ->
+                val serviceName = portNames[port] ?: "TCP"
+                logToScreen("[OPEN] Port $port ($serviceName) ✅\n")
+                totalOpen++
+            }
+            delay(50)
         }
 
+        logToScreen("\n>>> SCAN COMPLETED (Found $totalOpen open ports)\n")
         withContext(Dispatchers.Main) { stopTask() }
     }
 
@@ -307,7 +313,6 @@ class MainActivity : AppCompatActivity() {
     // HELPER FUNCTIONS
     // =========================================================================
 
-    // Starts a task: cancels old one, clears UI, sets buttons
     private fun startTask(block: suspend CoroutineScope.() -> Unit) {
         activeJob?.cancel()
         tvLog.text = ""
@@ -315,14 +320,12 @@ class MainActivity : AppCompatActivity() {
         activeJob = CoroutineScope(Dispatchers.IO).launch { block() }
     }
 
-    // Stops the current task
     private fun stopTask() {
         activeJob?.cancel()
         activeJob = null
         setButtonsState(isRunning = false)
     }
 
-    // Appends text to the screen safely + Auto-scrolling
     private suspend fun logToScreen(text: String) {
         withContext(Dispatchers.Main) {
             tvLog.append(text)
@@ -330,7 +333,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Handles auto-scrolling to the bottom
     private fun autoScroll() {
         val layout = tvLog.layout
         if (layout != null) {
@@ -339,20 +341,35 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Toggles button states
     private fun setButtonsState(isRunning: Boolean) {
         btnPing.isEnabled = !isRunning
         btnTrace.isEnabled = !isRunning
         btnCheckPort.isEnabled = !isRunning
         btnScan.isEnabled = !isRunning
         btnQuality.isEnabled = !isRunning
+        btnScanPorts.isEnabled = !isRunning
         btnStop.isEnabled = isRunning
     }
 
-    // Gets local IP address
+    // --- UPDATED IP DETECTION ---
+    // Now priorities 'wlan0' (Wi-Fi) over other interfaces
     private fun getMyIpAddress(): String? {
         try {
             val interfaces = Collections.list(NetworkInterface.getNetworkInterfaces())
+
+            // 1. First pass: Look specifically for "wlan0" (Wi-Fi)
+            for (intf in interfaces) {
+                if (intf.name.contains("wlan") || intf.displayName.contains("wlan")) {
+                    val addrs = Collections.list(intf.inetAddresses)
+                    for (addr in addrs) {
+                        if (!addr.isLoopbackAddress && addr is Inet4Address) {
+                            return addr.hostAddress
+                        }
+                    }
+                }
+            }
+
+            // 2. Second pass: Fallback to any other interface (Mobile Data / Ethernet)
             for (intf in interfaces) {
                 val addrs = Collections.list(intf.inetAddresses)
                 for (addr in addrs) {
@@ -361,11 +378,12 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-        } catch (e: Exception) { e.printStackTrace() }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         return null
     }
 
-    // Extracts IP from ping output string
     private fun extractIp(text: String): String {
         val parts = text.split(" ")
         for (part in parts) {
