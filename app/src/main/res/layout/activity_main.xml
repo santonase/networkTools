@@ -9,7 +9,7 @@
         android:id="@+id/etHost"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="Введіть хост (напр. google.com)"
+        android:hint="Enter the host (google.com)"
         android:text="192.168.1.1"
         android:inputType="textUri" />
 
@@ -17,7 +17,7 @@
         android:id="@+id/etPort"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="Порт (напр. 80)"
+        android:hint="Port (80)"
         android:text="80"
         android:inputType="number" />
 
@@ -54,22 +54,34 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Trace" />
+            android:text="Trace"
+            android:textSize="10sp"/>
 
         <Button
             android:id="@+id/btnCheckPort"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Port" />
+            android:text="Port"
+            android:textSize="10sp"/>
 
         <Button
             android:id="@+id/btnScan"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Scan LAN"
+            android:text="Scan"
+            android:textSize="10sp"
             android:backgroundTint="#4CAF50"/>
+
+        <Button
+            android:id="@+id/btnQuality"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="Quality"
+            android:textSize="10sp"
+            android:backgroundTint="#FF9800"/>
     </LinearLayout>
 
     <TextView
@@ -79,7 +91,7 @@
         android:background="#EEEEEE"
         android:padding="8dp"
         android:layout_marginTop="8dp"
-        android:text="Результати будуть тут..."
+        android:text="The results will be here..."
         android:fontFamily="monospace"
         android:scrollbars="vertical"
         android:textColor="#000000"
