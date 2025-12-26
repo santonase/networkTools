@@ -1,4 +1,4 @@
-package com.example.myapplication
+package com.svtbn.networktools
 
 import org.junit.Test
 

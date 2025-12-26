@@ -1,4 +1,4 @@
-package com.example.myapplication
+package com.svtbn.networktools
 
 import android.os.Bundle
 import android.text.method.ScrollingMovementMethod
@@ -261,7 +261,7 @@ class MainActivity : AppCompatActivity() {
 
             val startTime = System.currentTimeMillis()
             try {
-                val process = Runtime.getRuntime().exec("ping -c 1 -W 1 $host")
+                val process = Runtime.getRuntime().exec("ping -c 1 -W 3 $host")
                 val exitValue = process.waitFor()
                 val pingTime = (System.currentTimeMillis() - startTime).toDouble()
 
