@@ -60,7 +60,7 @@ class MainActivity : AppCompatActivity() {
         btnStop.setOnClickListener {
             stopTask()
             // Пишемо в лог вручну (безпечно, бо ми в головному потоці)
-            tvLog.append("\n--- STOPPED BY USER ---\n")
+            tvLog.append("\nSTOPPED BY USER \n")
             autoScroll()
         }
 
