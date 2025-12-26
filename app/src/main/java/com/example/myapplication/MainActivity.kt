@@ -1,4 +1,4 @@
-package com.example.myapplication // ПЕРЕВІРТЕ, ЩОБ ЦЕЙ РЯДОК СПІВПАДАВ З ВАШИМ
+package com.example.myapplication
 
 import android.os.Bundle
 import android.text.method.ScrollingMovementMethod
@@ -17,10 +17,10 @@ import java.util.Collections
 
 class MainActivity : AppCompatActivity() {
 
-    // Змінна для керування активним процесом (щоб можна було його зупинити)
+    // Variable to control the active background job (allows stopping it)
     private var activeJob: Job? = null
 
-    // Оголошення елементів інтерфейсу
+    // UI Elements
     private lateinit var tvLog: TextView
     private lateinit var btnPing: Button
     private lateinit var btnStop: Button
@@ -30,14 +30,15 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnQuality: Button
     private lateinit var etHost: EditText
     private lateinit var etPort: EditText
+    private lateinit var etPackets: EditText
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // Ініціалізація змінних (зв'язуємо з XML)
+        // Initialize UI components
         tvLog = findViewById(R.id.tvLog)
-        tvLog.movementMethod = ScrollingMovementMethod() // Вмикаємо прокрутку тексту
+        tvLog.movementMethod = ScrollingMovementMethod() // Enable text scrolling
 
         btnPing = findViewById(R.id.btnPing)
         btnStop = findViewById(R.id.btnStop)
@@ -47,30 +48,30 @@ class MainActivity : AppCompatActivity() {
         btnQuality = findViewById(R.id.btnQuality)
         etHost = findViewById(R.id.etHost)
         etPort = findViewById(R.id.etPort)
+        etPackets = findViewById(R.id.etPackets)
 
-        // --- ОБРОБНИКИ НАТИСКАННЯ КНОПОК ---
+        // --- BUTTON LISTENERS ---
 
-        // 1. PING
+        // 1. PING BUTTON
         btnPing.setOnClickListener {
             val host = etHost.text.toString()
             if (host.isNotBlank()) startTask { runInfinitePing(host) }
         }
 
-        // 2. STOP
+        // 2. STOP BUTTON
         btnStop.setOnClickListener {
             stopTask()
-            // Пишемо в лог вручну (безпечно, бо ми в головному потоці)
-            tvLog.append("\nSTOPPED BY USER \n")
+            tvLog.append("\n--- STOPPED BY USER ---\n")
             autoScroll()
         }
 
-        // 3. TRACE (Трасування)
+        // 3. TRACEROUTE BUTTON
         btnTrace.setOnClickListener {
             val host = etHost.text.toString()
             if (host.isNotBlank()) startTask { runTraceroute(host) }
         }
 
-        // 4. PORT CHECK
+        // 4. PORT CHECK BUTTON
         btnCheckPort.setOnClickListener {
             val host = etHost.text.toString()
             val portStr = etPort.text.toString()
@@ -79,49 +80,56 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        // 5. SCAN LAN (Сканер мережі)
+        // 5. SCAN NETWORK BUTTON
         btnScan.setOnClickListener {
             startTask { runNetworkScan() }
         }
 
-        // 6. QUALITY TEST (Тест якості)
+        // 6. QUALITY TEST BUTTON
         btnQuality.setOnClickListener {
             val host = etHost.text.toString()
-            if (host.isNotBlank()) startTask { runQualityTest(host) }
+            val packetsStr = etPackets.text.toString()
+
+            // Default to 10 packets if the field is empty
+            val packetsCount = if (packetsStr.isNotBlank()) packetsStr.toInt() else 10
+
+            if (host.isNotBlank()) {
+                startTask { runQualityTest(host, packetsCount) }
+            }
         }
     }
 
     // =========================================================================
-    // ОСНОВНІ ФУНКЦІЇ (ЛОГІКА)
+    // CORE LOGIC FUNCTIONS
     // =========================================================================
 
-    // --- ФУНКЦІЯ 1: НЕСКІНЧЕННИЙ ПІНГ ---
+    // --- FUNCTION 1: INFINITE PING ---
     private suspend fun CoroutineScope.runInfinitePing(host: String) {
         logToScreen(">>> START PING: $host\n")
 
-        while (isActive) { // Цикл працює, поки активна корутина
+        while (isActive) { // Loop runs while the job is active
             try {
-                // Запускаємо 1 пакет пінгу
+                // Execute a single ping packet
                 val process = Runtime.getRuntime().exec("ping -c 1 -W 2 $host")
                 val reader = BufferedReader(InputStreamReader(process.inputStream))
                 var line: String?
 
-                // Читаємо відповідь
+                // Read output
                 while (reader.readLine().also { line = it } != null) {
                     if (line!!.contains("bytes from")) {
                         logToScreen(line + "\n")
                     }
                 }
                 process.waitFor()
-                delay(1000) // Пауза 1 сек між пакетами
+                delay(1000) // 1-second delay between pings
             } catch (e: Exception) {
                 logToScreen("Error: ${e.message}\n")
-                delay(2000) // Якщо помилка, чекаємо довше перед повтором
+                delay(2000) // Wait longer on error
             }
         }
     }
 
-    // --- ФУНКЦІЯ 2: ТРАСУВАННЯ (Метод TTL) ---
+    // --- FUNCTION 2: TRACEROUTE (TTL Method) ---
     private suspend fun CoroutineScope.runTraceroute(host: String) {
         logToScreen(">>> START TRACEROUTE: $host\n")
         logToScreen("(Using TTL method)\n\n")
@@ -132,7 +140,7 @@ class MainActivity : AppCompatActivity() {
 
         while (ttl <= maxHops && isActive && !reachedDestination) {
             try {
-                // ping -c 1 (один пакет) -t ttl (час життя) -W 2 (тайм-аут)
+                // ping -c 1 (count) -t ttl (time to live) -W 2 (timeout)
                 val process = Runtime.getRuntime().exec("ping -c 1 -t $ttl -W 2 $host")
                 val reader = BufferedReader(InputStreamReader(process.inputStream))
                 var line: String?
@@ -140,13 +148,13 @@ class MainActivity : AppCompatActivity() {
                 var gotReply = false
 
                 while (reader.readLine().also { line = it } != null) {
-                    // Якщо відповідь від проміжного вузла
+                    // Check for intermediate hop response
                     if (line!!.contains("From") || line!!.contains("exceeded")) {
                         val ip = extractIp(line!!)
                         stepOutput = "Hop $ttl: $ip"
                         gotReply = true
                     }
-                    // Якщо дійшли до цілі
+                    // Check if destination reached
                     if (line!!.contains("bytes from")) {
                         stepOutput = "Hop $ttl: $host (DONE! ✅)"
                         reachedDestination = true
@@ -156,7 +164,7 @@ class MainActivity : AppCompatActivity() {
                 process.waitFor()
 
                 if (!gotReply) {
-                    stepOutput = "Hop $ttl: * * * (Time out)"
+                    stepOutput = "Hop $ttl: * * * (Request timed out)"
                 }
                 logToScreen(stepOutput + "\n")
                 ttl++
@@ -167,15 +175,15 @@ class MainActivity : AppCompatActivity() {
             }
         }
         logToScreen("\n>>> TRACEROUTE COMPLETED\n")
-        withContext(Dispatchers.Main) { stopTask() } // Авто-стоп
+        withContext(Dispatchers.Main) { stopTask() }
     }
 
-    // --- ФУНКЦІЯ 3: ПЕРЕВІРКА ПОРТУ ---
+    // --- FUNCTION 3: PORT CHECK ---
     private suspend fun CoroutineScope.runPortCheck(host: String, port: Int) {
         logToScreen(">>> CHECKING $host:$port...\n")
         try {
             val socket = Socket()
-            // Пробуємо підключитися з тайм-аутом 2000 мс
+            // Try connecting with a 2-second timeout
             socket.connect(InetSocketAddress(host, port), 2000)
             logToScreen("Result: Port $port is OPEN ✅\n")
             socket.close()
@@ -185,7 +193,7 @@ class MainActivity : AppCompatActivity() {
         withContext(Dispatchers.Main) { stopTask() }
     }
 
-    // --- ФУНКЦІЯ 4: СКАНЕР МЕРЕЖІ + ІМЕНА ---
+    // --- FUNCTION 4: NETWORK SCANNER + HOSTNAMES ---
     private suspend fun CoroutineScope.runNetworkScan() {
         val myIp = getMyIpAddress()
         if (myIp == null) {
@@ -198,19 +206,19 @@ class MainActivity : AppCompatActivity() {
         logToScreen(">>> SCANNING NETWORK: ${subnet}0/24\n")
         logToScreen("Your IP: $myIp\nScanning active devices...\n\n")
 
-        // Запускаємо 254 паралельних задачі
+        // Launch 254 parallel tasks
         val deferredResults = (1..254).map { i ->
             async(Dispatchers.IO) {
                 val hostToCheck = "$subnet$i"
-                if (hostToCheck == myIp) return@async null // Пропускаємо себе
+                if (hostToCheck == myIp) return@async null // Skip self
 
                 try {
-                    // Швидкий пінг (1 сек тайм-аут)
+                    // Fast ping (1 sec timeout)
                     val process = Runtime.getRuntime().exec("ping -c 1 -W 1 $hostToCheck")
                     val exitValue = process.waitFor()
 
                     if (exitValue == 0) {
-                        // Якщо є відповідь, пробуємо дізнатись ім'я (Reverse DNS)
+                        // If responsive, try Reverse DNS lookup
                         return@async try {
                             val inetAddr = java.net.InetAddress.getByName(hostToCheck)
                             val hostname = inetAddr.hostName
@@ -220,13 +228,13 @@ class MainActivity : AppCompatActivity() {
                         }
                     }
                 } catch (e: Exception) {
-                    // Ignore errors
+                    // Ignore ping errors
                 }
                 return@async null
             }
         }
 
-        // Чекаємо завершення всіх потоків
+        // Wait for all tasks to complete
         val activeHosts = deferredResults.awaitAll().filterNotNull()
 
         if (activeHosts.isEmpty()) {
@@ -235,16 +243,16 @@ class MainActivity : AppCompatActivity() {
             activeHosts.forEach { logToScreen("[FOUND] $it\n") }
         }
 
-        logToScreen("\n>>> SCAN COMPLETED (${activeHosts.size} devices)\n")
+        logToScreen("\n>>> SCAN COMPLETED (${activeHosts.size} devices found)\n")
         withContext(Dispatchers.Main) { stopTask() }
     }
 
-    // --- ФУНКЦІЯ 5: TEST QUALITY (Packet Loss & Jitter) ---
-    private suspend fun CoroutineScope.runQualityTest(host: String) {
+    // --- FUNCTION 5: QUALITY TEST (Packet Loss & Jitter) ---
+    private suspend fun CoroutineScope.runQualityTest(host: String, count: Int) {
         logToScreen(">>> QUALITY TEST: $host\n")
-        logToScreen("Sending 10 packets for analysis...\n")
+        logToScreen("Sending $count packets for analysis...\n")
 
-        val totalPackets = 10
+        val totalPackets = count
         var receivedPackets = 0
         val latencies = ArrayList<Double>()
 
@@ -255,8 +263,7 @@ class MainActivity : AppCompatActivity() {
             try {
                 val process = Runtime.getRuntime().exec("ping -c 1 -W 1 $host")
                 val exitValue = process.waitFor()
-                val endTime = System.currentTimeMillis()
-                val pingTime = (endTime - startTime).toDouble()
+                val pingTime = (System.currentTimeMillis() - startTime).toDouble()
 
                 if (exitValue == 0) {
                     receivedPackets++
@@ -265,10 +272,11 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     logToScreen("#$i: LOST ❌\n")
                 }
-            } catch (e: Exception) {
-                logToScreen("#$i: Error\n")
-            }
-            delay(200) // Інтервал для точності
+            } catch (e: Exception) { logToScreen("#$i: Error\n") }
+
+            // Adjust delay based on packet count to save time
+            val sleepTime = if (totalPackets > 20) 50L else 200L
+            delay(sleepTime)
         }
 
         logToScreen("\n--- RESULTS ---\n")
@@ -277,7 +285,7 @@ class MainActivity : AppCompatActivity() {
 
         if (receivedPackets > 1) {
             val avgPing = latencies.average()
-            // Розрахунок джитера (варіація затримки)
+            // Jitter calculation (variation in latency)
             var jitterSum = 0.0
             for (i in 0 until latencies.size - 1) {
                 jitterSum += Math.abs(latencies[i] - latencies[i + 1])
@@ -296,29 +304,25 @@ class MainActivity : AppCompatActivity() {
     }
 
     // =========================================================================
-    // ДОПОМІЖНІ ФУНКЦІЇ
+    // HELPER FUNCTIONS
     // =========================================================================
 
-    // Запуск завдання (очищає старе, готує UI)
+    // Starts a task: cancels old one, clears UI, sets buttons
     private fun startTask(block: suspend CoroutineScope.() -> Unit) {
-        activeJob?.cancel() // Зупиняємо попереднє, якщо було
-        tvLog.text = "" // Чистимо екран
-        setButtonsState(isRunning = true) // Блокуємо кнопки
-
-        // Запускаємо нову корутину в IO потоці
-        activeJob = CoroutineScope(Dispatchers.IO).launch {
-            block()
-        }
+        activeJob?.cancel()
+        tvLog.text = ""
+        setButtonsState(isRunning = true)
+        activeJob = CoroutineScope(Dispatchers.IO).launch { block() }
     }
 
-    // Зупинка завдання
+    // Stops the current task
     private fun stopTask() {
         activeJob?.cancel()
         activeJob = null
         setButtonsState(isRunning = false)
     }
 
-    // Вивід тексту на екран (безпечно для потоків) + Автоскрол
+    // Appends text to the screen safely + Auto-scrolling
     private suspend fun logToScreen(text: String) {
         withContext(Dispatchers.Main) {
             tvLog.append(text)
@@ -326,20 +330,16 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Логіка автопрокрутки вниз
+    // Handles auto-scrolling to the bottom
     private fun autoScroll() {
         val layout = tvLog.layout
         if (layout != null) {
             val scrollAmount = layout.getLineBottom(tvLog.lineCount - 1) - tvLog.height
-            if (scrollAmount > 0) {
-                tvLog.scrollTo(0, scrollAmount)
-            } else {
-                tvLog.scrollTo(0, 0)
-            }
+            if (scrollAmount > 0) tvLog.scrollTo(0, scrollAmount) else tvLog.scrollTo(0, 0)
         }
     }
 
-    // Керування станом кнопок (увімк/вимк)
+    // Toggles button states
     private fun setButtonsState(isRunning: Boolean) {
         btnPing.isEnabled = !isRunning
         btnTrace.isEnabled = !isRunning
@@ -349,7 +349,7 @@ class MainActivity : AppCompatActivity() {
         btnStop.isEnabled = isRunning
     }
 
-    // Отримання IP адреси пристрою
+    // Gets local IP address
     private fun getMyIpAddress(): String? {
         try {
             val interfaces = Collections.list(NetworkInterface.getNetworkInterfaces())
@@ -361,20 +361,15 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        } catch (e: Exception) { e.printStackTrace() }
         return null
     }
 
-    // Витягування IP з рядка пінгу (Regex-style)
+    // Extracts IP from ping output string
     private fun extractIp(text: String): String {
         val parts = text.split(" ")
         for (part in parts) {
-            // Шукаємо щось, що має крапки і цифри, і прибираємо двокрапку
-            if (part.contains(".") && part.any { it.isDigit() }) {
-                return part.replace(":", "")
-            }
+            if (part.contains(".") && part.any { it.isDigit() }) return part.replace(":", "")
         }
         return text
     }
